@@ -1,0 +1,46 @@
+[project]
+name = "crazyflow-gate-ppo"
+version = "0.1.0"
+description = "End-to-end JAX PPO expert for Crazyflie gate racing in crazyflow (UAVLA Phase 1: RL expert / data generator)"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "crazyflow[gpu]==0.3.2",
+    "flax>=0.10",
+    "optax>=0.2",
+    "hydra-core>=1.3",
+    "omegaconf>=2.3",
+    "imageio-ffmpeg>=0.5",
+]
+
+[project.optional-dependencies]
+wandb = ["wandb>=0.17"]
+
+[project.scripts]
+gate-ppo-train = "gate_ppo.train:main"
+gate-ppo-eval = "gate_ppo.evaluate:main"
+gate-ppo-render = "gate_ppo.render:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.11,<0.12.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "gate_ppo"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP", "B"]
+ignore = ["E731"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

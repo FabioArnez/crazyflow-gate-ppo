@@ -1,0 +1,108 @@
+"""Replay a trajectory ``.npz`` (from ``gate-ppo-eval --save-traj``) into an MP4 with gates drawn.
+
+Rendering is crazyflow's per-world MuJoCo offscreen path, i.e. a second pass over logged poses —
+the same pattern Phase 2 will use to produce FPV frames for the demonstration dataset.
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+
+os.environ.setdefault("MUJOCO_GL", "egl")
+
+import imageio  # noqa: E402
+import jax.numpy as jnp  # noqa: E402
+import mujoco  # noqa: E402
+import numpy as np  # noqa: E402
+from crazyflow.control import Control  # noqa: E402
+from crazyflow.dynamics import Dynamics  # noqa: E402
+from crazyflow.sim import Sim  # noqa: E402
+
+CAMERAS = {"track": "track_cam:0", "fpv": "fpv_cam:0", "free": -1}
+
+
+def add_gates(sim: Sim, gates_pos, gates_yaw, half_opening: float, thickness: float, n_active: int):
+    """Attach square gate frames (4 boxes each) to the scene and rebuild the MJX model."""
+    w, th, depth = float(half_opening), float(thickness), 0.03
+    bars = [
+        ((0.0, 0.0, w + th / 2), (depth / 2, w + th, th / 2)),
+        ((0.0, 0.0, -(w + th / 2)), (depth / 2, w + th, th / 2)),
+        ((0.0, w + th / 2, 0.0), (depth / 2, th / 2, w)),
+        ((0.0, -(w + th / 2), 0.0), (depth / 2, th / 2, w)),
+    ]
+    for i, (pos, yaw) in enumerate(zip(gates_pos, gates_yaw, strict=True)):
+        body = sim.spec.worldbody.add_body()
+        body.name = f"gate{i}"
+        body.pos = np.asarray(pos, dtype=float)
+        body.quat = np.array([np.cos(yaw / 2), 0.0, 0.0, np.sin(yaw / 2)])  # MuJoCo wxyz
+        rgba = [0.9, 0.2, 0.2, 1.0] if i < n_active else [0.6, 0.6, 0.6, 0.6]
+        for bar_pos, size in bars:
+            geom = body.add_geom()
+            geom.type = mujoco.mjtGeom.mjGEOM_BOX
+            geom.pos = np.asarray(bar_pos)
+            geom.size = np.asarray(size)
+            geom.rgba = np.asarray(rgba)
+            geom.contype = 0
+            geom.conaffinity = 0
+    sim.build_mjx()
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    p.add_argument("--traj", required=True)
+    p.add_argument("--out", default="flight.mp4")
+    p.add_argument("--world", type=int, default=0)
+    p.add_argument("--camera", choices=sorted(CAMERAS), default="track")
+    p.add_argument("--fps", type=int, default=24)
+    p.add_argument("--width", type=int, default=640)
+    p.add_argument("--height", type=int, default=480)
+    args = p.parse_args(argv)
+
+    d = np.load(args.traj)
+    k = args.world
+    ep_len = int(d["ep_len"][k])
+    pos, quat = d["pos"][:ep_len, k], d["quat"][:ep_len, k]
+    n_active = int(d["n_active"][k])
+    sim = Sim(
+        n_worlds=1,
+        n_drones=1,
+        drone=str(d["drone"]),
+        dynamics=Dynamics.first_principles,
+        control=Control.rotor_vel,
+        freq=int(d["sim_freq"]),
+        device="cpu",
+    )
+    add_gates(
+        sim, d["gates_pos"][k], d["gates_yaw"][k], d["half_opening"], d["frame_thickness"], n_active
+    )
+    sim.reset()
+
+    ctrl_freq = int(d["ctrl_freq"])
+    stride = max(1, round(ctrl_freq / args.fps))
+    frames = []
+    for t in range(0, ep_len, stride):
+        states = sim.data.states.replace(
+            pos=jnp.asarray(pos[t]).reshape(1, 1, 3), quat=jnp.asarray(quat[t]).reshape(1, 1, 4)
+        )
+        core = sim.data.core.replace(mjx_synced=jnp.array(False))
+        sim.data = sim.data.replace(states=states, core=core)
+        frame = sim.render(
+            mode="rgb_array",
+            world=0,
+            camera=CAMERAS[args.camera],
+            width=args.width,
+            height=args.height,
+        )
+        frames.append(np.asarray(frame))
+    sim.close()
+    imageio.mimwrite(args.out, frames, fps=ctrl_freq // stride)
+    outcome = "success" if d["success"][k] else "failure"
+    print(
+        f"{len(frames)} frames ({ep_len / ctrl_freq:.1f} s, {outcome}, {n_active} gates) "
+        f"-> {args.out}"
+    )
+
+
+if __name__ == "__main__":
+    main()

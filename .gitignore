@@ -1,0 +1,23 @@
+# Python / uv
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+
+# Hydra / experiment outputs
+outputs/
+multirun/
+wandb/
+*.log
+
+# Artifacts (checkpoints, trajectories, videos)
+*.pkl
+*.npz
+*.mp4
+
+# JAX compilation cache
+jax_cache/

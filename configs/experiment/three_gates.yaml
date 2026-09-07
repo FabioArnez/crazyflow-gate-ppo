@@ -1,0 +1,10 @@
+# @package _global_
+# Stage 1 of the gate-count curriculum: randomised 2-3 gate tracks (discussion log Q9: 94 % full-track
+# success at ~15 M steps from scratch, one seed).
+run:
+  name: three_gates
+env:
+  n_gates: 3
+  n_gates_min: 2
+ppo:
+  total_env_steps: 30_000_000

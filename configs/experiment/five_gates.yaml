@@ -1,0 +1,11 @@
+# @package _global_
+# The Phase-1 target: randomised 3-5 gate tracks. Warm-start from a three_gates checkpoint with
+# `run.init_from=outputs/three_gates/<timestamp>/checkpoint.pkl` (gate-count curriculum is ~free:
+# the policy is a local track follower) or train from scratch with a larger budget.
+run:
+  name: five_gates
+env:
+  n_gates: 5
+  n_gates_min: 3
+ppo:
+  total_env_steps: 50_000_000

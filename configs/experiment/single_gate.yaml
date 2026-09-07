@@ -1,0 +1,13 @@
+# @package _global_
+# Sanity check: one gate, no curriculum. The vault's reference harness reached 100 % success in
+# ~10 M steps on this task.
+run:
+  name: single_gate
+env:
+  n_gates: 1
+  n_gates_min: 1
+  yaw_range: 0.3
+ppo:
+  total_env_steps: 10_000_000
+curriculum:
+  enabled: false
