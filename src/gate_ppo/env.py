@@ -250,7 +250,8 @@ class GateRaceEnv:
         n1, u1 = gate_frame(y1)
         to_body = lambda v: quat_rotate_inv(quat, v)
         gravity_dir = to_body(jnp.broadcast_to(jnp.array([0.0, 0.0, 1.0]), (n, 3)))
-        remaining = (state.n_active - idx).astype(jnp.float32)[:, None]
+        remaining = jnp.minimum(state.n_active - idx, cfg.obs_remaining_cap)
+        remaining = remaining.astype(jnp.float32)[:, None]
         rotor_norm = (rotor / self.hover_rpm - 1.0) / cfg.action_scale
         return jnp.concatenate(
             [

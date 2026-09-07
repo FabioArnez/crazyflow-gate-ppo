@@ -49,6 +49,10 @@ class EnvConfig:
     # --- episode length: max_steps = max_steps_base + steps_per_gate * n_active ----------------
     max_steps_base: int = 96
     steps_per_gate: int = 96
+    # The "gates remaining" observation is clipped here so that chains longer than the training
+    # tracks stay in-distribution (the policy is a local track follower; it only needs to know
+    # when the last gate is near). Keep it at the largest n_gates used for training.
+    obs_remaining_cap: int = 5
     # --- reward (Song et al., 2021 style) ------------------------------------------------------
     k_progress: float = 1.0  # per metre of progress towards the current gate
     gate_bonus: float = 5.0
