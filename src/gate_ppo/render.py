@@ -56,7 +56,7 @@ def add_overview_camera(sim: Sim, gates_pos, name: str = "overview") -> None:
     centre = pts.mean(0)
     extent = max(float(np.linalg.norm(pts[:, :2] - centre[:2], axis=1).max()), 1.5)
     azimuth = np.deg2rad(-135.0)
-    dist, height = 2.6 * extent + 2.0, 1.6 * extent + 2.0
+    dist, height = 1.9 * extent + 1.2, 1.3 * extent + 1.0
     pos = centre + np.array([dist * np.cos(azimuth), dist * np.sin(azimuth), height])
     fwd = centre - pos
     fwd /= np.linalg.norm(fwd)
@@ -82,6 +82,12 @@ def main(argv=None):
     p.add_argument("--fps", type=int, default=24)
     p.add_argument("--width", type=int, default=640)
     p.add_argument("--height", type=int, default=480)
+    p.add_argument(
+        "--trail",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="draw the flown path and a halo on the drone (default: only for the overview camera)",
+    )
     args = p.parse_args(argv)
 
     d = np.load(args.traj)
@@ -107,6 +113,12 @@ def main(argv=None):
 
     ctrl_freq = int(d["ctrl_freq"])
     stride = max(1, round(ctrl_freq / args.fps))
+    trail = args.camera == "overview" if args.trail is None else args.trail
+    render = lambda: sim.render(
+        mode="rgb_array", world=0, camera=CAMERAS[args.camera], width=args.width, height=args.height
+    )
+    render()  # instantiate the offscreen viewer so markers can be attached to it
+    viewer = sim.viewer.viewer
     frames = []
     for t in range(0, ep_len, stride):
         states = sim.data.states.replace(
@@ -114,14 +126,24 @@ def main(argv=None):
         )
         core = sim.data.core.replace(mjx_synced=jnp.array(False))
         sim.data = sim.data.replace(states=states, core=core)
-        frame = sim.render(
-            mode="rgb_array",
-            world=0,
-            camera=CAMERAS[args.camera],
-            width=args.width,
-            height=args.height,
-        )
-        frames.append(np.asarray(frame))
+        if trail:
+            markers = getattr(viewer, "_markers", None)
+            if markers is not None:
+                markers[:] = []
+            for s in range(0, t, max(1, stride // 2)):
+                viewer.add_marker(
+                    type=mujoco.mjtGeom.mjGEOM_SPHERE,
+                    size=np.full(3, 0.025),
+                    pos=pos[s],
+                    rgba=np.array([1.0, 0.85, 0.1, 0.9]),
+                )
+            viewer.add_marker(
+                type=mujoco.mjtGeom.mjGEOM_SPHERE,
+                size=np.full(3, 0.07),
+                pos=pos[t],
+                rgba=np.array([0.2, 0.9, 1.0, 0.8]),
+            )
+        frames.append(np.asarray(render()))
     sim.close()
     imageio.mimwrite(args.out, frames, fps=ctrl_freq // stride)
     outcome = "success" if d["success"][k] else "failure"
