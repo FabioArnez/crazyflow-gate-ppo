@@ -25,11 +25,20 @@ class EnvConfig:
     spacing_min: float = 1.2  # m between consecutive gates
     spacing_max: float = 2.2
     yaw_range: float = 0.6  # max |heading change| between consecutive gates (rad)
+    gate_yaw_noise: float = 0.0  # chain: gate normal = segment heading + U(+-this) (rad)
     dz_max: float = 0.3  # max altitude change between consecutive gates (m)
     z_min: float = 0.7  # gate altitude clipped to [z_min, z_max]
     z_max: float = 2.2
     start_z_min: float = 0.8
     start_z_max: float = 1.4
+    # --- track family: "chain" (random-walk polyline), "circle" (imperfect circle), "mixed" ------
+    track_type: str = "chain"
+    circle_prob: float = 0.5  # share of circle tracks in "mixed"
+    circle_gates_per_turn_min: float = 8.0  # heading change per gate = 2*pi / gates_per_turn
+    circle_gates_per_turn_max: float = 12.0
+    circle_radius_noise: float = 0.1
+    circle_angle_noise: float = 0.1
+    circle_yaw_noise: float = 0.1
     start_xy_jitter: float = 0.2
     start_yaw_noise: float = 0.3
     start_vel_max: float = 0.3

@@ -34,7 +34,7 @@ from jax import Array
 
 from gate_ppo.config import EnvConfig
 from gate_ppo.geometry import gate_crossing, gate_frame, hover_rpm, quat_rotate_inv
-from gate_ppo.track import sample_start, sample_track
+from gate_ppo.track import sample_circle_track, sample_start, sample_track
 
 OBS_DIM = 37
 ACTION_DIM = 4
@@ -50,6 +50,9 @@ class EnvParams:
     dr_mass: Array
     dr_inertia: Array
     dr_motor_gain: Array
+    circle_prob: Array
+    circle_gates_per_turn_min: Array
+    circle_gates_per_turn_max: Array
 
     @classmethod
     def from_config(
@@ -59,8 +62,12 @@ class EnvParams:
         n_gates_min: int | None = None,
         n_gates_max: int | None = None,
         domain_randomization: bool = True,
+        circle_prob: float | None = None,
+        gates_per_turn: float | None = None,
     ) -> EnvParams:
         dr = 1.0 if domain_randomization else 0.0
+        gpt_min = cfg.circle_gates_per_turn_min if gates_per_turn is None else gates_per_turn
+        gpt_max = cfg.circle_gates_per_turn_max if gates_per_turn is None else gates_per_turn
         return cls(
             yaw_range=jnp.float32(cfg.yaw_range if yaw_range is None else yaw_range),
             n_gates_min=jnp.int32(cfg.n_gates_min if n_gates_min is None else n_gates_min),
@@ -68,6 +75,9 @@ class EnvParams:
             dr_mass=jnp.float32(cfg.dr_mass * dr),
             dr_inertia=jnp.float32(cfg.dr_inertia * dr),
             dr_motor_gain=jnp.float32(cfg.dr_motor_gain * dr),
+            circle_prob=jnp.float32(cfg.circle_prob if circle_prob is None else circle_prob),
+            circle_gates_per_turn_min=jnp.float32(gpt_min),
+            circle_gates_per_turn_max=jnp.float32(gpt_max),
         )
 
 
@@ -94,6 +104,8 @@ class GateRaceEnv:
             raise ValueError("sim_freq must be a multiple of ctrl_freq")
         if not 1 <= cfg.n_gates_min <= cfg.n_gates:
             raise ValueError("need 1 <= n_gates_min <= n_gates")
+        if cfg.track_type not in ("chain", "circle", "mixed"):
+            raise ValueError(f"unknown track_type {cfg.track_type!r}")
         self.cfg = cfg
         self.n_envs = cfg.n_envs
         self.n_gates = cfg.n_gates
@@ -148,12 +160,13 @@ class GateRaceEnv:
         self, state: EnvState, mask: Array, key: Array, params: EnvParams
     ) -> EnvState:
         cfg, n, g = self.cfg, self.n_envs, self.n_total_gates
-        k_track, k_active, k_start, k_dr = jax.random.split(key, 4)
+        k_track, k_active, k_start, k_dr, k_type = jax.random.split(key, 5)
 
-        track_fn = partial(
+        chain_fn = partial(
             sample_track,
             n_gates=g,
             yaw_range=params.yaw_range,
+            gate_yaw_noise=cfg.gate_yaw_noise,
             spacing_min=cfg.spacing_min,
             spacing_max=cfg.spacing_max,
             dz_max=cfg.dz_max,
@@ -162,9 +175,36 @@ class GateRaceEnv:
             start_z_min=cfg.start_z_min,
             start_z_max=cfg.start_z_max,
         )
-        gates_pos, gates_yaw, start_pos, start_yaw = jax.vmap(track_fn)(
-            jax.random.split(k_track, n)
+        circle_fn = partial(
+            sample_circle_track,
+            n_gates=g,
+            gates_per_turn_min=params.circle_gates_per_turn_min,
+            gates_per_turn_max=params.circle_gates_per_turn_max,
+            spacing_min=cfg.spacing_min,
+            spacing_max=cfg.spacing_max,
+            radius_noise=cfg.circle_radius_noise,
+            angle_noise=cfg.circle_angle_noise,
+            yaw_noise=cfg.circle_yaw_noise,
+            dz_max=cfg.dz_max,
+            z_min=cfg.z_min,
+            z_max=cfg.z_max,
+            start_z_min=cfg.start_z_min,
+            start_z_max=cfg.start_z_max,
         )
+        track_keys = jax.random.split(k_track, n)
+        if cfg.track_type == "chain":
+            track = jax.vmap(chain_fn)(track_keys)
+        elif cfg.track_type == "circle":
+            track = jax.vmap(circle_fn)(track_keys)
+        else:  # mixed: draw both families, pick per world
+            chain, circle = jax.vmap(chain_fn)(track_keys), jax.vmap(circle_fn)(track_keys)
+            is_circle = jax.random.bernoulli(k_type, params.circle_prob, (n,))
+            track = jax.tree.map(
+                lambda a, b: jnp.where(is_circle.reshape((n,) + (1,) * (a.ndim - 1)), b, a),
+                chain,
+                circle,
+            )
+        gates_pos, gates_yaw, start_pos, start_yaw = track
         n_active = jax.random.randint(
             k_active, (n,), params.n_gates_min, params.n_gates_max + 1, dtype=jnp.int32
         )

@@ -1,0 +1,20 @@
+# @package _global_
+# Fine-tune the five-gate expert on a 50/50 mix of random-walk chains and imperfect circles whose
+# per-gate turn spans 30-72 degrees (gates_per_turn 12 -> 5); chain gate normals are perturbed by
+# +-0.3 rad so the policy cannot rely on 'normal == direction from the previous gate'. Warm-start with
+# `run.init_from=outputs/five_gates/<run>/checkpoint.pkl`; the yaw curriculum is off because the
+# chain branch starts at the full +-0.6 rad range.
+run:
+  name: mixed_tracks
+env:
+  n_gates: 5
+  n_gates_min: 3
+  track_type: mixed
+  gate_yaw_noise: 0.3
+  circle_prob: 0.5
+  circle_gates_per_turn_min: 5.0
+  circle_gates_per_turn_max: 12.0
+ppo:
+  total_env_steps: 30_000_000
+curriculum:
+  enabled: false

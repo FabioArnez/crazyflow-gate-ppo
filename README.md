@@ -7,9 +7,11 @@ itself. Design decisions follow the project's research notes.
 
 - **Actions:** 4 motor RPMs at 48 Hz (`rpm = hover_rpm · (1 + 0.35·a)`, `a ∈ [-1, 1]⁴`) over 480 Hz
   first-principles dynamics — the commanded RPM is the label the VLA will be trained on.
-- **Task:** randomised chains of 3–5 upright square gates (0.49 m opening, ±0.6 rad turns, 1.2–2.2 m
-  spacing, altitude 0.7–2.2 m). Gate passage / frame collision / miss are geometric tests in JAX
-  (no MJX contact queries); worlds auto-reset in the same step.
+- **Task:** randomised tracks of 3–5 upright square gates (0.49 m opening, 1.2–2.2 m spacing,
+  altitude 0.7–2.2 m): random-walk chains (±0.6 rad turns) and, since the generalisation study
+  below, imperfect circles and chains with perturbed gate normals (`env.track_type`). Gate passage /
+  frame collision / miss are geometric tests in JAX (no MJX contact queries); worlds auto-reset in
+  the same step.
 - **Learner:** PureJaxRL-style PPO — physics, gate logic, policy, GAE and the clipped update live in
   one `jax.jit` per iteration. 2×256 tanh actor and critic, truncation bootstrapping, running
   observation normalisation, entropy bonus + linear LR annealing, per-world domain randomisation
@@ -35,6 +37,10 @@ uv run gate-ppo-train experiment=three_gates
 # stage 2: randomised 3-5 gate tracks, 50 M steps, warm-started from stage 1 (~2 min)
 uv run gate-ppo-train experiment=five_gates run.init_from=outputs/three_gates/<run>/checkpoint.pkl
 
+# stage 3: mixed track families (chains with perturbed gate normals + imperfect circles), 30 M steps,
+# warm-started from stage 2 (~1.4 min). This is the recommended expert — see "Generalisation" below.
+uv run gate-ppo-train experiment=mixed_tracks run.init_from=outputs/five_gates/<run>/checkpoint.pkl
+
 # anything is a Hydra override; multirun over seeds:
 uv run gate-ppo-train experiment=five_gates run.seed=0,1,2 -m
 uv run gate-ppo-train run.device=cpu env.n_envs=256      # laptop CPU / Mac
@@ -51,6 +57,8 @@ config under `.hydra/`). Console lines show episode return/length, success, gate
 uv run gate-ppo-eval --ckpt outputs/five_gates/<run>/checkpoint.pkl --n-gates 5 --n-episodes 1024
 uv run gate-ppo-eval --ckpt ... --n-gates 10                 # longer chains than seen in training
 uv run gate-ppo-eval --ckpt ... --n-gates 5 --stochastic     # sample actions (demo diversity)
+uv run gate-ppo-eval --ckpt ... --n-gates 5 --track-type circle --gates-per-turn 8   # 45 deg/gate
+uv run gate-ppo-eval --ckpt ... --n-gates 5 --gate-yaw-noise 0.3   # chains, normals off the path
 uv run gate-ppo-eval --ckpt ... --n-gates 5 --save-traj traj.npz --traj-worlds 16
 uv run gate-ppo-render --traj traj.npz --world 0 --camera track --out flight.mp4   # or --camera fpv
 ```
@@ -69,6 +77,7 @@ vault's estimate for this GPU was a tier-3 guess of 2 × 10⁵–10⁶). Compila
 |---|---|---|---|
 | `three_gates` (2–3 gates, curriculum 0.2 → 0.6 rad) | 30 M | 1.2 min | 0.94–0.98 |
 | `five_gates` (3–5 gates, warm-started) | 50 M | 2.1 min | 0.94–0.98 |
+| `mixed_tracks` (chains ± circles, warm-started from `five_gates`) | 30 M | 1.4 min | 0.94–0.97 |
 
 Evaluation of the `five_gates` checkpoint, 1024 fresh tracks each, all gates required:
 
@@ -94,6 +103,41 @@ collapsed to 0.39 with crashes at the *first* gates — not a speed problem (spe
 rest of the gap is per-gate crash risk compounding over more gates. Training on longer chains and
 more seeds are the obvious next experiments.
 
+### Generalisation to other track shapes
+
+Does the chain-trained expert fly an *imperfect circle*? Zero-shot, no — and not because the turns
+are sharper. `sample_circle_track` places the gates on a noisy circle so every turn has the same sign
+and magnitude 360°/`gates_per_turn`. The `five_gates` checkpoint (chains only) scores ≈ 1 % on every
+circle, even at 10–30°/gate, which is inside its ±34° training range:
+
+| Track (5 gates required, deterministic, DR on) | mean ∠(gate normal, travel direction) | `five_gates` zero-shot | `mixed_tracks` |
+|---|---|---|---|
+| chain, normals aligned (training distribution) | 0.0° | **0.957** | **0.967** |
+| chain, normals ± 0.13 rad | 3.7° | 0.855 | – |
+| chain, normals ± 0.26 rad | 7.5° | 0.548 | – |
+| chain, normals ± 0.30 rad | 8.6° | – | 0.967 |
+| chain, normals ± 0.52 rad | 15.0° | 0.122 | – |
+| circle 12 gates/turn (30°/gate) | 15.3° | 0.013 | 0.969 |
+| circle 8 gates/turn (45°/gate) | 22.5° | 0.003 | 0.987 |
+| circle 6 gates/turn (60°/gate) | 30.0° | 0.007 | 0.984 |
+| circle 5 gates/turn (72°/gate) | 36.1° | 0.011 | 0.977 |
+| circle 4 gates/turn (90°/gate, outside training) | 45.1° | – | 0.482 |
+| full circle, 10 gates at 10/turn | 18.0° | 0.000 | 0.925 |
+| full circle, 8 gates at 8/turn | 22.6° | – | 0.971 |
+| chain, 10 gates | 0.0° | 0.765 | 0.891 |
+
+The chain sampler has a hidden regularity: the normal of gate *i* points exactly along the segment
+from gate *i − 1*, so "fly along the current gate's normal" and "fly to the gate centre" coincide and
+the policy learned the former. Circles break it by half a turn per gate (plus lateral jitter from
+the relative radius noise), and rotating the normals of ordinary chains reproduces the collapse
+smoothly. Zero-shot success is a monotone function of the decoupling angle in the second column.
+
+`experiment=mixed_tracks` (50 % chains with normals ± 0.3 rad, 50 % circles with 5–12 gates/turn,
+30 M steps warm-started from `five_gates`, 1.4 min) fixes it across the board and is *better* on the
+original chains and on long chains — its checkpoint is the one to use for demonstrations. Curvature
+beyond the training range (90°/gate) degrades gracefully rather than collapsing. Lesson: check every
+new track family for regularities the sampler introduces before trusting the expert on it.
+
 ## Layout
 
 ```
@@ -101,7 +145,7 @@ configs/            Hydra config + experiment overrides (single_gate, three_gate
 src/gate_ppo/
   config.py         dataclass schema (defaults for every knob)
   geometry.py       quaternion helpers, gate frames, the passage / frame / miss test, hover RPM
-  track.py          randomised gate chains and initial states
+  track.py          gate chains, imperfect circles, chain-normal noise, initial states
   env.py            GateRaceEnv: EnvState/EnvParams pytrees, reset, observe, step (autoreset)
   networks.py       actor / critic MLPs
   ppo.py            rollout + GAE + clipped PPO update in one jit, running obs stats, metrics
@@ -122,3 +166,5 @@ tests/              CPU tests: geometry, env invariants (hover holds altitude), 
 - Only per-world parameters (`mass`, `J`) can be randomised per world; `rpm2thrust` and
   `rotor_dyn_coef` have no world axis, hence the motor-gain factor in the action mapping.
 - `sim.contacts()` costs ~5× on CPU — gate events are geometric on purpose.
+- **Track samplers can hide regularities the policy will exploit** (see Generalisation): break them
+  in training (`env.gate_yaw_noise`, `env.track_type=mixed`) before trusting a new track family.

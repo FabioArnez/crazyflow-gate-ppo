@@ -37,6 +37,10 @@ def parse_args(argv=None):
     p.add_argument("--n-gates-min", type=int, default=None, help="default: same as --n-gates")
     p.add_argument("--n-episodes", type=int, default=1024, help="worlds = episodes")
     p.add_argument("--yaw-range", type=float, default=None, help="default: training env.yaw_range")
+    p.add_argument("--track-type", choices=["chain", "circle", "mixed"], default=None)
+    p.add_argument("--gates-per-turn", type=float, default=None, help="circle: turn = 2*pi/this")
+    p.add_argument("--circle-prob", type=float, default=None, help="mixed: share of circles")
+    p.add_argument("--gate-yaw-noise", type=float, default=None, help="chain: normal offset (rad)")
     p.add_argument("--stochastic", action="store_true", help="sample actions instead of the mean")
     p.add_argument("--no-dr", action="store_true", help="disable domain randomisation")
     p.add_argument("--device", default="gpu", choices=["gpu", "cpu"])
@@ -55,9 +59,12 @@ def main(argv=None):
     cfg = ckpt["config"]
     n_gates = args.n_gates or cfg["env"]["n_gates"]
     n_gates_min = args.n_gates_min or n_gates
-    env_cfg = EnvConfig(
-        **{**cfg["env"], "n_envs": args.n_episodes, "n_gates": n_gates, "n_gates_min": n_gates_min}
-    )
+    overrides = {"n_envs": args.n_episodes, "n_gates": n_gates, "n_gates_min": n_gates_min}
+    if args.track_type:
+        overrides["track_type"] = args.track_type
+    if args.gate_yaw_noise is not None:
+        overrides["gate_yaw_noise"] = args.gate_yaw_noise
+    env_cfg = EnvConfig(**{**cfg["env"], **overrides})
     env = GateRaceEnv(env_cfg, device=args.device)
     network = ActorCritic(env.action_dim, tuple(cfg["net"]["hidden"]), cfg["net"]["log_std_init"])
     params = jax.tree.map(jnp.asarray, ckpt["params"])
@@ -68,7 +75,11 @@ def main(argv=None):
     )
     normalize_obs = cfg["ppo"]["normalize_obs"]
     env_params = EnvParams.from_config(
-        env_cfg, yaw_range=args.yaw_range, domain_randomization=not args.no_dr
+        env_cfg,
+        yaw_range=args.yaw_range,
+        domain_randomization=not args.no_dr,
+        circle_prob=args.circle_prob,
+        gates_per_turn=args.gates_per_turn,
     )
     max_steps = env_cfg.max_steps_base + env_cfg.steps_per_gate * n_gates
     k_env, k_run = jax.random.split(jax.random.key(args.seed))
@@ -142,6 +153,12 @@ def main(argv=None):
         "n_gates_min": n_gates_min,
         "n_episodes": args.n_episodes,
         "yaw_range": float(env_params.yaw_range),
+        "track_type": env_cfg.track_type,
+        "gate_yaw_noise": env_cfg.gate_yaw_noise,
+        "gates_per_turn": [
+            float(env_params.circle_gates_per_turn_min),
+            float(env_params.circle_gates_per_turn_max),
+        ],
         "deterministic": not args.stochastic,
         "domain_randomization": not args.no_dr,
         "success_rate": float(outcome["success"].mean()),
