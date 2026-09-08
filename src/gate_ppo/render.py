@@ -19,7 +19,7 @@ from crazyflow.control import Control  # noqa: E402
 from crazyflow.dynamics import Dynamics  # noqa: E402
 from crazyflow.sim import Sim  # noqa: E402
 
-CAMERAS = {"track": "track_cam:0", "fpv": "fpv_cam:0", "free": -1}
+CAMERAS = {"track": "track_cam:0", "fpv": "fpv_cam:0", "overview": "overview", "free": -1}
 
 
 def add_gates(sim: Sim, gates_pos, gates_yaw, half_opening: float, thickness: float, n_active: int):
@@ -45,6 +45,31 @@ def add_gates(sim: Sim, gates_pos, gates_yaw, half_opening: float, thickness: fl
             geom.rgba = np.asarray(rgba)
             geom.contype = 0
             geom.conaffinity = 0
+    sim.build_mjx()
+
+
+def add_overview_camera(sim: Sim, gates_pos, name: str = "overview") -> None:
+    """Add a fixed camera that frames the whole track from above, then rebuild the MJX model."""
+    from scipy.spatial.transform import Rotation  # after crazyflow, which sets SCIPY_ARRAY_API
+
+    pts = np.asarray(gates_pos, dtype=float)
+    centre = pts.mean(0)
+    extent = max(float(np.linalg.norm(pts[:, :2] - centre[:2], axis=1).max()), 1.5)
+    azimuth = np.deg2rad(-135.0)
+    dist, height = 2.6 * extent + 2.0, 1.6 * extent + 2.0
+    pos = centre + np.array([dist * np.cos(azimuth), dist * np.sin(azimuth), height])
+    fwd = centre - pos
+    fwd /= np.linalg.norm(fwd)
+    right = np.cross(fwd, np.array([0.0, 0.0, 1.0]))
+    right /= np.linalg.norm(right)
+    up = np.cross(right, fwd)
+    # MuJoCo cameras look along -z with +y up: columns are the camera x, y, z axes in the world.
+    rot = np.stack([right, up, -fwd], axis=1)
+    cam = sim.spec.worldbody.add_camera()
+    cam.name = name
+    cam.pos = pos
+    cam.quat = Rotation.from_matrix(rot).as_quat(scalar_first=True)
+    cam.fovy = 50.0
     sim.build_mjx()
 
 
@@ -76,6 +101,8 @@ def main(argv=None):
     add_gates(
         sim, d["gates_pos"][k], d["gates_yaw"][k], d["half_opening"], d["frame_thickness"], n_active
     )
+    if args.camera == "overview":
+        add_overview_camera(sim, d["gates_pos"][k])
     sim.reset()
 
     ctrl_freq = int(d["ctrl_freq"])
