@@ -1,170 +1,106 @@
 # crazyflow-gate-ppo
 
-End-to-end JAX PPO expert that flies a Crazyflie (`cf2x_L250`) through chains of gates in the
-[crazyflow](https://github.com/learnsyslab/crazyflow) simulator. This is **Phase 1 of UAVLA**: the
-RL expert is the *data generator* for the later SmolVLA + normalizing-flow policy, not the deliverable
-itself. Design decisions follow the project's research notes.
+A PPO expert that flies a Crazyflie quadrotor through randomised gate tracks in the
+[crazyflow](https://github.com/learnsyslab/crazyflow) simulator. Physics, gate logic, policy and the
+PPO update run inside one `jax.jit`, so the whole three-stage curriculum trains in **about 5 minutes
+on a laptop GPU**. The expert is a data generator for imitation learning (vision-language-action
+policies, world models), not an end in itself.
 
-- **Actions:** 4 motor RPMs at 48 Hz (`rpm = hover_rpm · (1 + 0.35·a)`, `a ∈ [-1, 1]⁴`) over 480 Hz
-  first-principles dynamics — the commanded RPM is the label the VLA will be trained on.
-- **Task:** randomised tracks of 3–5 upright square gates (0.49 m opening, 1.2–2.2 m spacing,
-  altitude 0.7–2.2 m): random-walk chains (±0.6 rad turns) and, since the generalisation study
-  below, imperfect circles and chains with perturbed gate normals (`env.track_type`). Gate passage /
-  frame collision / miss are geometric tests in JAX (no MJX contact queries); worlds auto-reset in
-  the same step.
-- **Learner:** PureJaxRL-style PPO — physics, gate logic, policy, GAE and the clipped update live in
-  one `jax.jit` per iteration. 2×256 tanh actor and critic, truncation bootstrapping, running
-  observation normalisation, entropy bonus + linear LR annealing, per-world domain randomisation
-  (mass, inertia, motor gain), yaw-range curriculum.
+![The mixed-track expert on an 8-gate circle: overview, chase camera and onboard FPV camera](docs/media/circle8_three_views.gif)
 
-## Setup
+*The recommended expert (`mixed_tracks`) on an 8-gate circle, in real time: overview with the flown
+path, chase camera, onboard FPV camera.*
+
+## At a glance
+
+| | |
+|---|---|
+| **Task** | Pass every gate of a randomised track, in order: random-walk chains and imperfect circles of upright square gates (0.49 m opening, 1.2–2.2 m spacing). |
+| **Vehicle** | Crazyflie `cf2x_L250`, first-principles dynamics at 480 Hz with first-order rotor dynamics. |
+| **Actions** | 4 motor RPMs at 48 Hz: `rpm = hover_rpm · (1 + 0.35·a)`, `a ∈ [-1, 1]⁴`. |
+| **Observation** | 37-D, in the body frame: altitude, gravity direction, velocity, body rates, rotor speeds, previous action, pose of the current and next gate, gates remaining. |
+| **Learner** | PureJaxRL-style PPO; 2×256 tanh actor and critic; truncation bootstrapping; running observation normalisation; domain randomisation of mass, inertia and motor gain; yaw-range curriculum. |
+| **Gate events** | Geometric plane-crossing tests in JAX, no MJX contact queries; worlds auto-reset in the same step. |
+| **Speed** | ≈ 5 × 10⁵ env steps/s with 1,024 parallel worlds on an RTX 2080 (8 GB). |
+
+## Results
+
+![Success rate of each checkpoint on each test distribution](results/figures/phase1_fig2_eval_heatmap.png)
+
+Success rate on 1,024 fresh tracks per cell (all gates required, deterministic policy, domain
+randomisation on unless stated; seed 0, crazyflow 0.3.2). The `mixed_tracks` expert reaches
+**97 % on 5-gate chains**, **97–99 % on circles up to 72° per gate** and **89 % on 10-gate chains**,
+twice the training length. Full tables: [`results/2026-09-08_seed0.md`](results/2026-09-08_seed0.md).
+
+| Stage | Training tracks | Steps | Wall time |
+|---|---|---|---|
+| `three_gates` | 2–3 gate chains | 30 M | 1.2 min |
+| `five_gates` | 3–5 gate chains, warm start | 50 M | 2.1 min |
+| `mixed_tracks` | chains with perturbed gate normals + imperfect circles, warm start | 30 M | 1.4 min |
+
+![The five-gate expert on a 5-gate chain: chase camera and onboard FPV camera](docs/media/chain5_track_fpv.gif)
+
+*The `five_gates` expert on a 5-gate chain: chase camera and onboard FPV camera.*
+
+## Lesson: track samplers leak shortcuts
+
+![Same 8-gate circle: chain-only expert (left) and mixed-track expert (right)](docs/media/circle8_chain_only_vs_mixed.gif)
+
+*Same 8-gate circle. Left: the chain-only `five_gates` expert leaves gate 1 along its normal and
+clips the frame of gate 2. Right: the `mixed_tracks` expert.*
+
+The chain sampler makes every gate normal point along the path from the previous gate, so "fly along
+the gate normal" and "fly to the gate" are the same thing in training, and the policy learned the
+first. Circles break that coincidence: the chain-only expert scores ≈ 1 % on them, even at turns
+inside its training range, and rotating the gate normals of ordinary chains reproduces the collapse
+gradually. Fine-tuning on both families (`experiment=mixed_tracks`, 1.4 min) fixes it and also
+improves long chains. Check every new track family for such regularities before trusting the expert.
+
+## Quickstart
+
+Requires Linux x86-64 and CUDA 12 for the GPU extra; `run.device=cpu` works anywhere.
 
 ```bash
-uv sync                      # Python 3.12, crazyflow[gpu]==0.3.2 (CUDA 12), flax, optax, hydra
-uv run pytest                # CPU test suite (~30 s)
-uv run ruff check src tests
-```
+uv sync && uv run pytest     # Python 3.12, crazyflow[gpu]==0.3.2; CPU test suite (~30 s)
 
-`train.py` sets `XLA_PYTHON_CLIENT_PREALLOCATE=false` so JAX can share the GPU with PyTorch later;
-`gate_ppo/__init__.py` sets `SCIPY_ARRAY_API=1`, which crazyflow requires before scipy is imported.
-
-## Train
-
-```bash
-# stage 1: randomised 2-3 gate tracks, 30 M steps (~1.2 min on an RTX 2080)
+# three-stage curriculum, each stage warm-started from the previous checkpoint
 uv run gate-ppo-train experiment=three_gates
-
-# stage 2: randomised 3-5 gate tracks, 50 M steps, warm-started from stage 1 (~2 min)
-uv run gate-ppo-train experiment=five_gates run.init_from=outputs/three_gates/<run>/checkpoint.pkl
-
-# stage 3: mixed track families (chains with perturbed gate normals + imperfect circles), 30 M steps,
-# warm-started from stage 2 (~1.4 min). This is the recommended expert — see "Generalisation" below.
+uv run gate-ppo-train experiment=five_gates   run.init_from=outputs/three_gates/<run>/checkpoint.pkl
 uv run gate-ppo-train experiment=mixed_tracks run.init_from=outputs/five_gates/<run>/checkpoint.pkl
 
-# anything is a Hydra override; multirun over seeds:
-uv run gate-ppo-train experiment=five_gates run.seed=0,1,2 -m
-uv run gate-ppo-train run.device=cpu env.n_envs=256      # laptop CPU / Mac
+# evaluate on 1,024 fresh tracks, save trajectories, then render one flight
+uv run gate-ppo-eval --ckpt outputs/mixed_tracks/<run>/checkpoint.pkl --n-gates 5 --save-traj traj.npz
+uv run gate-ppo-eval --ckpt ... --n-gates 5 --track-type circle --gates-per-turn 8   # 45° per gate
+uv run gate-ppo-render --traj traj.npz --camera fpv --out flight.mp4   # track | fpv | overview | free
 ```
 
-Outputs go to `outputs/<run.name>/<timestamp>/` (`checkpoint.pkl`, `metrics.jsonl`, the resolved
-config under `.hydra/`). Console lines show episode return/length, success, gates passed, crash / miss
-/ timeout rates, mean speed, entropy, KL, `log_std` and the current curriculum yaw range. Set
-`run.wandb=true` (after `uv sync --extra wandb`) to log to Weights & Biases.
-
-## Evaluate and render
-
-```bash
-uv run gate-ppo-eval --ckpt outputs/five_gates/<run>/checkpoint.pkl --n-gates 5 --n-episodes 1024
-uv run gate-ppo-eval --ckpt ... --n-gates 10                 # longer chains than seen in training
-uv run gate-ppo-eval --ckpt ... --n-gates 5 --stochastic     # sample actions (demo diversity)
-uv run gate-ppo-eval --ckpt ... --n-gates 5 --track-type circle --gates-per-turn 8   # 45 deg/gate
-uv run gate-ppo-eval --ckpt ... --n-gates 5 --gate-yaw-noise 0.3   # chains, normals off the path
-uv run gate-ppo-eval --ckpt ... --n-gates 5 --save-traj traj.npz --traj-worlds 16
-uv run gate-ppo-render --traj traj.npz --world 0 --camera track --out flight.mp4   # or --camera fpv
-```
-
-Evaluation runs one fresh episode per world (deterministic mean action by default) and reports success
-/ crash / miss / timeout rates and gates passed. `gate-ppo-render` replays logged poses through
-crazyflow's MuJoCo renderer with the gates added to the scene — the same second-pass pattern Phase 2
-will use to produce FPV frames for the demonstration dataset.
-
-## Results (2026-09-08, seed 0, laptop RTX 2080 8 GB)
-
-Throughput: **~4.5–5.2 × 10⁵ env steps/s** at 1024 worlds × 32 steps per update (measured; the
-vault's estimate for this GPU was a tier-3 guess of 2 × 10⁵–10⁶). Compilation ~8 s.
-
-| Stage | Steps | Wall time | Train success (stochastic, last iters) |
-|---|---|---|---|
-| `three_gates` (2–3 gates, curriculum 0.2 → 0.6 rad) | 30 M | 1.2 min | 0.94–0.98 |
-| `five_gates` (3–5 gates, warm-started) | 50 M | 2.1 min | 0.94–0.98 |
-| `mixed_tracks` (chains ± circles, warm-started from `five_gates`) | 30 M | 1.4 min | 0.94–0.97 |
-
-Evaluation of the `five_gates` checkpoint, 1024 fresh tracks each, all gates required:
-
-| Track | Policy | DR | Success | Crash | Miss | Gates passed | Time |
-|---|---|---|---|---|---|---|---|
-| 5 gates | deterministic | on | **0.957** | 0.042 | 0.001 | 4.90 / 5 | 2.0 s |
-| 5 gates | deterministic | off | 0.984 | 0.016 | 0 | – | – |
-| 5 gates | stochastic | on | 0.941 | 0.059 | 0 | 4.87 / 5 | 2.0 s |
-| 7 gates | deterministic | on | 0.876 | 0.123 | 0.001 | 6.57 / 7 | 2.5 s |
-| 10 gates | deterministic | on | 0.765 | 0.232 | 0.003 | 8.74 / 10 | 3.2 s |
-| 7 gates, uncapped `remaining` feature | deterministic | on | 0.835 | 0.163 | 0.002 | 6.37 / 7 | 2.5 s |
-| 10 gates, uncapped `remaining` feature | deterministic | on | 0.392 | 0.597 | 0.012 | 5.73 / 10 | 2.3 s |
-
-The `three_gates` checkpoint already reaches 0.908 on 5-gate chains zero-shot (0.937 on 3-gate
-chains), i.e. the gate-count curriculum is nearly free — the policy is a local track follower that
-only sees the current and next gate.
-
-On chains longer than the training tracks, the first version of the observation exposed the raw
-"gates remaining" count (6–10, never seen by the running normaliser) and success on 10-gate chains
-collapsed to 0.39 with crashes at the *first* gates — not a speed problem (speed plateaus at
-≈ 5.8 m/s by gate 3 and then decreases). Clipping that feature at the training horizon
-(`env.obs_remaining_cap`, default 5) restores 0.77 on 10-gate chains with the same checkpoint; the
-rest of the gap is per-gate crash risk compounding over more gates. Training on longer chains and
-more seeds are the obvious next experiments.
-
-### Generalisation to other track shapes
-
-Does the chain-trained expert fly an *imperfect circle*? Zero-shot, no — and not because the turns
-are sharper. `sample_circle_track` places the gates on a noisy circle so every turn has the same sign
-and magnitude 360°/`gates_per_turn`. The `five_gates` checkpoint (chains only) scores ≈ 1 % on every
-circle, even at 10–30°/gate, which is inside its ±34° training range:
-
-| Track (5 gates required, deterministic, DR on) | mean ∠(gate normal, travel direction) | `five_gates` zero-shot | `mixed_tracks` |
-|---|---|---|---|
-| chain, normals aligned (training distribution) | 0.0° | **0.957** | **0.967** |
-| chain, normals ± 0.13 rad | 3.7° | 0.855 | – |
-| chain, normals ± 0.26 rad | 7.5° | 0.548 | – |
-| chain, normals ± 0.30 rad | 8.6° | – | 0.967 |
-| chain, normals ± 0.52 rad | 15.0° | 0.122 | – |
-| circle 12 gates/turn (30°/gate) | 15.3° | 0.013 | 0.969 |
-| circle 8 gates/turn (45°/gate) | 22.5° | 0.003 | 0.987 |
-| circle 6 gates/turn (60°/gate) | 30.0° | 0.007 | 0.984 |
-| circle 5 gates/turn (72°/gate) | 36.1° | 0.011 | 0.977 |
-| circle 4 gates/turn (90°/gate, outside training) | 45.1° | – | 0.482 |
-| full circle, 10 gates at 10/turn | 18.0° | 0.000 | 0.925 |
-| full circle, 8 gates at 8/turn | 22.6° | – | 0.971 |
-| chain, 10 gates | 0.0° | 0.765 | 0.891 |
-
-The chain sampler has a hidden regularity: the normal of gate *i* points exactly along the segment
-from gate *i − 1*, so "fly along the current gate's normal" and "fly to the gate centre" coincide and
-the policy learned the former. Circles break it by half a turn per gate (plus lateral jitter from
-the relative radius noise), and rotating the normals of ordinary chains reproduces the collapse
-smoothly. Zero-shot success is a monotone function of the decoupling angle in the second column.
-
-`experiment=mixed_tracks` (50 % chains with normals ± 0.3 rad, 50 % circles with 5–12 gates/turn,
-30 M steps warm-started from `five_gates`, 1.4 min) fixes it across the board and is *better* on the
-original chains and on long chains — its checkpoint is the one to use for demonstrations. Curvature
-beyond the training range (90°/gate) degrades gracefully rather than collapsing. Lesson: check every
-new track family for regularities the sampler introduces before trusting the expert on it.
+Every config key is a Hydra override (`env.n_envs=256 run.device=cpu`, `run.seed=0,1,2 -m`). Runs
+write to `outputs/<run.name>/<timestamp>/` (checkpoint, metrics, resolved config); the checkpoints
+and videos of the reported runs are committed there. `run.wandb=true` logs to Weights & Biases
+(`uv sync --extra wandb`). `gate-ppo-eval --stochastic` samples actions, for diverse demonstrations.
 
 ## Layout
 
 ```
-configs/            Hydra config + experiment overrides (single_gate, three_gates, five_gates)
-src/gate_ppo/
-  config.py         dataclass schema (defaults for every knob)
-  geometry.py       quaternion helpers, gate frames, the passage / frame / miss test, hover RPM
-  track.py          gate chains, imperfect circles, chain-normal noise, initial states
-  env.py            GateRaceEnv: EnvState/EnvParams pytrees, reset, observe, step (autoreset)
-  networks.py       actor / critic MLPs
-  ppo.py            rollout + GAE + clipped PPO update in one jit, running obs stats, metrics
-  train.py          Hydra entry point, curriculum, logging, checkpoints
-  evaluate.py       first-episode outcomes on fresh chains, trajectory dump
-  render.py         replay a trajectory to MP4 with gates in the MuJoCo scene
-tests/              CPU tests: geometry, env invariants (hover holds altitude), one PPO iteration
+configs/          Hydra config + experiment overrides (single_gate, three_gates, five_gates, mixed_tracks)
+src/gate_ppo/     config · geometry (gate test) · track (samplers) · env (GateRaceEnv) · networks ·
+                  ppo (rollout + GAE + update in one jit) · train · evaluate · render
+tests/            CPU tests: geometry, env invariants, one PPO iteration
+results/          evaluation JSONs, run configs, figures; scripts/make_report_figures.py rebuilds them
+outputs/          checkpoints, metrics and videos of the reported runs
+docs/media/       README animations (made from the videos in outputs/)
 ```
 
-## Gotchas learned the hard way
+## Gotchas
 
-- **Rotors must be pre-spun at reset, and equally.** crazyflow's rotors start at 0 RPM and follow
-  first-order dynamics (τ ≈ 0.14 s). A ±5 % per-motor jitter at reset is an undamped torque impulse
-  that leaves the drone tumbling at ~6 rad/s; use `env.start_ang_vel_max` for that kind of
-  diversity instead (`hover_rpm_jitter` defaults to 0).
-- **crazyflow 0.3.2 does not clip rotor speeds** (no `clip_rotor_vel` stage in the step pipeline,
-  unlike the current docs); the action mapping bounds RPM to `[0.65, 1.35] · hover`.
-- Only per-world parameters (`mass`, `J`) can be randomised per world; `rpm2thrust` and
-  `rotor_dyn_coef` have no world axis, hence the motor-gain factor in the action mapping.
-- `sim.contacts()` costs ~5× on CPU — gate events are geometric on purpose.
-- **Track samplers can hide regularities the policy will exploit** (see Generalisation): break them
-  in training (`env.gate_yaw_noise`, `env.track_type=mixed`) before trusting a new track family.
+- **Pre-spin the rotors exactly at hover at reset.** crazyflow's rotors follow first-order dynamics
+  (τ ≈ 0.14 s); a ±5 % per-motor jitter is an undamped torque impulse that tumbles the drone. Get
+  initial diversity from `env.start_ang_vel_max` / `start_tilt_max` / `start_vel_max` instead.
+- **Cap the "gates remaining" feature at the training horizon** (`env.obs_remaining_cap`). Uncapped,
+  longer chains are out of distribution: 39 % → 77 % success on 10-gate chains with the same
+  checkpoint.
+- **crazyflow 0.3.2 does not clip rotor speeds**; the action mapping bounds RPM to `[0.65, 1.35] · hover`.
+- Only `mass` and `J` have a world axis for per-world randomisation; `rpm2thrust` and
+  `rotor_dyn_coef` do not, hence the motor-gain factor in the action mapping.
+- `sim.contacts()` costs ~5× on CPU; gate events are geometric on purpose.
+- Import `gate_ppo` (or crazyflow) before scipy: crazyflow needs `SCIPY_ARRAY_API=1`.
