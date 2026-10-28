@@ -1,0 +1,4 @@
+- run.name=smoke
+- ppo.total_env_steps=655360
+- run.log_interval=1
+- run.ckpt_interval=1000

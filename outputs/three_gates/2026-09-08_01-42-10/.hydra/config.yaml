@@ -1,0 +1,77 @@
+env:
+  drone: cf2x_L250
+  sim_freq: 480
+  ctrl_freq: 48
+  n_envs: 1024
+  action_scale: 0.35
+  n_gates: 3
+  n_gates_min: 2
+  spacing_min: 1.2
+  spacing_max: 2.2
+  yaw_range: 0.6
+  dz_max: 0.3
+  z_min: 0.7
+  z_max: 2.2
+  start_z_min: 0.8
+  start_z_max: 1.4
+  start_xy_jitter: 0.2
+  start_yaw_noise: 0.3
+  start_vel_max: 0.3
+  start_tilt_max: 0.1
+  start_ang_vel_max: 0.2
+  hover_rpm_jitter: 0.0
+  half_opening: 0.245
+  frame_thickness: 0.06
+  drone_radius: 0.07
+  z_floor: 0.05
+  z_ceiling: 3.5
+  max_gate_dist: 6.0
+  max_steps_base: 96
+  steps_per_gate: 96
+  k_progress: 1.0
+  gate_bonus: 5.0
+  crash_penalty: 10.0
+  miss_penalty: 10.0
+  k_ang_vel: 0.002
+  k_action_rate: 0.01
+  k_yaw: 0.01
+  dr_mass: 0.1
+  dr_inertia: 0.1
+  dr_motor_gain: 0.05
+net:
+  hidden:
+  - 256
+  - 256
+  log_std_init: -0.5
+ppo:
+  n_steps: 32
+  n_epochs: 4
+  n_minibatches: 8
+  lr: 0.0003
+  anneal_lr: true
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_eps: 0.2
+  clip_vloss: true
+  vf_coef: 0.5
+  ent_coef: 0.001
+  max_grad_norm: 0.5
+  normalize_obs: true
+  normalize_adv: true
+  total_env_steps: 30000000
+curriculum:
+  enabled: true
+  yaw_range_init: 0.2
+  yaw_range_step: 0.1
+  success_threshold: 0.8
+  window: 10
+run:
+  name: three_gates
+  seed: 0
+  device: gpu
+  log_interval: 5
+  ckpt_interval: 100
+  init_from: null
+  wandb: false
+  wandb_project: uavla-gate-ppo
+  jax_cache: true
