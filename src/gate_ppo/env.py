@@ -10,9 +10,10 @@ Observation (37-D, all in the drone's body frame so the policy is yaw-invariant)
 current gate: rel pos (3), normal (3), lateral axis (3) | next gate: same (9) |
 gates remaining (1)``.
 
-Action: ``a in [-1, 1]^4`` -> ``rpm = motor_gain * hover_rpm * (1 + action_scale * a)``. The
-commanded RPM (``controls.rotor_vel``) is the label the VLA will later be trained on;
-``states.rotor_vel`` is the realised rotor speed after crazyflow's first-order rotor dynamics.
+Action: ``a in [-1, 1]^4`` -> ``rpm = motor_gain * hover_rpm * (1 + action_scale * a)``, clipped
+to the motor limits that crazyflow (>= 0.4) enforces in its step pipeline (thrust_min..thrust_max
+per motor). The commanded RPM (``controls.rotor_vel``) is the label the VLA will later be trained
+on; ``states.rotor_vel`` is the realised rotor speed after crazyflow's first-order rotor dynamics.
 """
 
 from __future__ import annotations
@@ -24,10 +25,10 @@ import jax.numpy as jnp
 import numpy as np
 from crazyflow.control import Control
 from crazyflow.dynamics import Dynamics, load_params
-from crazyflow.dynamics.first_principles import dynamics as fp_dynamics
 from crazyflow.sim import Sim
 from crazyflow.sim import functional as F
 from crazyflow.sim.data import SimData
+from crazyflow.sim.sim import rotor_vel_limits
 from crazyflow.utils import leaf_replace
 from flax import struct
 from jax import Array
@@ -122,10 +123,11 @@ class GateRaceEnv:
         )
         self.sim.reset()
         self._step_fn = self.sim.build_step_fn()
-        params = load_params(fp_dynamics, cfg.drone)
+        params = load_params(Dynamics.first_principles, cfg.drone)
         self.mass0 = float(np.asarray(params["mass"]))
         self.J0 = np.asarray(params["J"], dtype=np.float32)
         self.hover_rpm = float(hover_rpm(np.asarray(params["rpm2thrust"]), self.mass0))
+        self.rpm_min, self.rpm_max = rotor_vel_limits(Dynamics.first_principles, cfg.drone)
         self.obs_dim = OBS_DIM
         self.action_dim = ACTION_DIM
 
@@ -133,8 +135,16 @@ class GateRaceEnv:
     def init_state(self, key: Array) -> EnvState:
         """Allocate an ``EnvState`` from the freshly reset ``Sim``; call :meth:`reset` next."""
         n, g = self.n_envs, self.n_total_gates
+        # crazyflow >= 0.4 shares params across worlds by default; give the randomised ones a world
+        # axis up front so the state keeps static shapes through reset and lax.scan.
+        p = self.sim.data.params
+        params = p.replace(
+            mass=jnp.broadcast_to(p.mass, (n, 1, 1)),
+            J=jnp.broadcast_to(p.J, (n, 1, 3, 3)),
+            J_inv=jnp.broadcast_to(p.J_inv, (n, 1, 3, 3)),
+        )
         return EnvState(
-            sim=self.sim.data,
+            sim=self.sim.data.replace(params=params),
             gates_pos=jnp.zeros((n, g, 3)),
             gates_yaw=jnp.zeros((n, g)),
             n_active=jnp.full((n,), self.n_gates, dtype=jnp.int32),
@@ -220,8 +230,9 @@ class GateRaceEnv:
             ang_vel_max=cfg.start_ang_vel_max,
             rpm_jitter=cfg.hover_rpm_jitter,
         )
-        # Domain randomisation: per-world mass / inertia (crazyflow params carry a world axis) and
-        # a motor-gain factor standing in for thrust-curve error (rpm2thrust has no world axis).
+        # Domain randomisation: per-world mass / inertia (given a world axis in init_state) and a
+        # motor-gain factor standing in for thrust-curve error. crazyflow >= 0.4 would also accept a
+        # per-world rpm2thrust; the gain is kept so that 0.3.2 checkpoints see the same DR.
         k_mass, k_inertia, k_gain = jax.random.split(k_dr, 3)
         mass = self.mass0 * (
             1.0
@@ -326,6 +337,9 @@ class GateRaceEnv:
         cfg, n = self.cfg, self.n_envs
         a = jnp.clip(action, -1.0, 1.0)
         rpm = state.motor_gain[:, None] * self.hover_rpm * (1.0 + cfg.action_scale * a)
+        # crazyflow clips the command to the motor limits anyway; clipping here as well makes the
+        # logged rpm_cmd the command that is actually executed.
+        rpm = jnp.clip(rpm, self.rpm_min, self.rpm_max)
         sim = F.rotor_vel_control(state.sim, rpm[:, None, :])
         sim = self._step_fn(sim, n_steps=self.n_ticks)
 

@@ -315,7 +315,7 @@ wheels = [
 
 [[package]]
 name = "crazyflow"
-version = "0.3.2"
+version = "0.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "array-api-compat" },
@@ -332,9 +332,9 @@ dependencies = [
     { name = "numpy" },
     { name = "scipy" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/9f/4f/bed0925e5babf07842e5ecf25a8e7a7121057db416e0742a172b87d86fe3/crazyflow-0.3.2.tar.gz", hash = "sha256:ccdb9d91a7f5b20bd407760e80ca58902841e11ddaef93158fe9229d032256c5", size = 7569654, upload-time = "2026-08-26T17:11:01.198Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/21/3b/31eb60a0aae2afd76c867414f9ba935972c0dd47d1ffbe93138a4f8e8213/crazyflow-0.4.0.tar.gz", hash = "sha256:31da3a7d327201cce04907735a0ed68ee1ffe83afb5311ccf11ccb7a7df85734", size = 12279991, upload-time = "2026-10-14T21:14:26.015Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d8/2e/4c0465c6d9089ff380ec067b69a3a57b25c0b369e3ead27d3ad749d9dba2/crazyflow-0.3.2-py3-none-any.whl", hash = "sha256:2ba446b61b61f5e7f8aa0e3faffec738aa84fb14168dcd6ce329b20a12c2f9e7", size = 7568829, upload-time = "2026-08-26T17:10:58.676Z" },
+    { url = "https://files.pythonhosted.org/packages/38/f5/e495409d8273b95091073eea16ba496eebd77cbea720094b80650aad006a/crazyflow-0.4.0-py3-none-any.whl", hash = "sha256:db6d604149184c25691706c432f9fe878d9fb537df34b9410b004f5c519cf0d1", size = 12280200, upload-time = "2026-10-14T21:14:23.045Z" },
 ]
 
 [package.optional-dependencies]
@@ -369,7 +369,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "crazyflow", extras = ["gpu"], specifier = "==0.3.2" },
+    { name = "crazyflow", extras = ["gpu"], specifier = "==0.4.0" },
     { name = "flax", specifier = ">=0.10" },
     { name = "hydra-core", specifier = ">=1.3" },
     { name = "imageio-ffmpeg", specifier = ">=0.5" },
@@ -537,7 +537,7 @@ wheels = [
 
 [[package]]
 name = "gymnasium"
-version = "1.3.0"
+version = "1.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cloudpickle" },
@@ -545,9 +545,9 @@ dependencies = [
     { name = "numpy" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/4d/ff/14b6880d703dfaca204490979d3254ccd280c99550798993319902873658/gymnasium-1.3.0.tar.gz", hash = "sha256:6939e86e835d6b71b6ba6bfd360487420876deafc79bfb7bacba83a7c446bcf3", size = 830646, upload-time = "2026-04-22T13:47:14.155Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/fb/3a/6713c8a92c259fd7619dc93ff19e6e435463f20d3d7b180b14ce99074c10/gymnasium-1.4.0.tar.gz", hash = "sha256:9754f630a32abfdbb76386abe1bc1e706c982db2d62dfa119c9952eb2de7697d", size = 350436, upload-time = "2026-10-05T11:02:16.217Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e9/73/fda6a25f3beeb5e49d74330b44092b9e5a547395ccd478d1103ddcbff1fc/gymnasium-1.3.0-py3-none-any.whl", hash = "sha256:6b8c159a8540dcbcb221722d7efda24d78ebbcbc3bd2ea1c2611aa2a34471fc2", size = 953904, upload-time = "2026-04-22T13:47:12.13Z" },
+    { url = "https://files.pythonhosted.org/packages/38/4e/6a51be94ae8e9dc8eaddd6ea74a6dde754448c4c746b51a232681f81e41c/gymnasium-1.4.0-py3-none-any.whl", hash = "sha256:1cb947c59e7c72d8eabb2c2274c00cd20948e69f8452a9ef4092223be24fdf0e", size = 476306, upload-time = "2026-10-05T11:02:14.783Z" },
 ]
 
 [package.optional-dependencies]

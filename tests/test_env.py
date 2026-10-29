@@ -66,3 +66,12 @@ def test_step_outputs_and_autoreset():
         assert np.all(np.asarray(state.gate_idx)[done] == 0)
     # Random RPM commands crash quickly, so at least one world must have reset by now.
     assert done.any() or np.asarray(state.t).max() < 200
+
+
+def test_rotor_command_clipped_to_motor_limits():
+    env, params, state, obs = make_env()
+    # crazyflow >= 0.4 clips at thrust_max; full throttle (1.35 x hover) lies above it.
+    assert env.rpm_min < env.hover_rpm < env.rpm_max < 1.35 * env.hover_rpm
+    assert state.sim.params.mass.shape == (4, 1, 1) and state.sim.params.J.shape == (4, 1, 3, 3)
+    *_, info = jax.jit(env.step)(state, jnp.ones((4, 4)), params)
+    np.testing.assert_allclose(np.asarray(info["rpm_cmd"]), env.rpm_max, rtol=1e-6)

@@ -5,7 +5,7 @@ description = "End-to-end JAX PPO expert for Crazyflie gate racing in crazyflow 
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "crazyflow[gpu]==0.3.2",
+    "crazyflow[gpu]==0.4.0",
     "flax>=0.10",
     "optax>=0.2",
     "hydra-core>=1.3",
