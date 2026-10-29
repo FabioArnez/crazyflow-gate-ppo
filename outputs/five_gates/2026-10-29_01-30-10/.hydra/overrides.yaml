@@ -1,0 +1,3 @@
+- experiment=five_gates
+- run.init_from=outputs/three_gates/2026-10-29_01-28-36/checkpoint.pkl
+- run.log_interval=25

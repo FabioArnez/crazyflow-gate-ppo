@@ -1,0 +1,25 @@
+{
+  "checkpoint": "outputs/three_gates/2026-09-08_01-42-10/checkpoint.pkl",
+  "n_gates": 5,
+  "n_gates_min": 5,
+  "n_episodes": 1024,
+  "yaw_range": 0.6000000238418579,
+  "track_type": "circle",
+  "gate_yaw_noise": 0.0,
+  "gates_per_turn": [
+    12.0,
+    12.0
+  ],
+  "deterministic": true,
+  "domain_randomization": true,
+  "success_rate": 0.2646484375,
+  "crash_rate": 0.6181640625,
+  "miss_rate": 0.1171875,
+  "timeout_rate": 0.0,
+  "gates_passed_mean": 2.046875,
+  "episode_length_s": 2.5035197734832764,
+  "return_mean": 5.655491828918457,
+  "per_n_active": {
+    "5": 0.2646484375
+  }
+}

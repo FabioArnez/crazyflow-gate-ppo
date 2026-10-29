@@ -1,0 +1,25 @@
+{
+  "checkpoint": "mixed_tracks_60M (side run, checkpoint not committed)",
+  "n_gates": 10,
+  "n_gates_min": 10,
+  "n_episodes": 1024,
+  "yaw_range": 0.6000000238418579,
+  "track_type": "mixed",
+  "gate_yaw_noise": 0.3,
+  "gates_per_turn": [
+    5.0,
+    12.0
+  ],
+  "deterministic": true,
+  "domain_randomization": true,
+  "success_rate": 0.845703125,
+  "crash_rate": 0.154296875,
+  "miss_rate": 0.0,
+  "timeout_rate": 0.0,
+  "gates_passed_mean": 9.0322265625,
+  "episode_length_s": 3.95556640625,
+  "return_mean": 55.09080123901367,
+  "per_n_active": {
+    "10": 0.845703125
+  }
+}

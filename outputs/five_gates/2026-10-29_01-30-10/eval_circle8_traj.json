@@ -1,0 +1,25 @@
+{
+  "checkpoint": "outputs/five_gates/2026-10-29_01-30-10/checkpoint.pkl",
+  "n_gates": 8,
+  "n_gates_min": 8,
+  "n_episodes": 256,
+  "yaw_range": 0.6000000238418579,
+  "track_type": "circle",
+  "gate_yaw_noise": 0.0,
+  "gates_per_turn": [
+    8.0,
+    8.0
+  ],
+  "deterministic": true,
+  "domain_randomization": true,
+  "success_rate": 0.0234375,
+  "crash_rate": 0.83203125,
+  "miss_rate": 0.14453125,
+  "timeout_rate": 0.0,
+  "gates_passed_mean": 1.26953125,
+  "episode_length_s": 1.5601400136947632,
+  "return_mean": -1.7735958099365234,
+  "per_n_active": {
+    "8": 0.0234375
+  }
+}

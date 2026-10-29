@@ -1,0 +1,25 @@
+{
+  "checkpoint": "outputs/mixed_tracks/2026-09-08_02-13-19/checkpoint.pkl",
+  "n_gates": 7,
+  "n_gates_min": 7,
+  "n_episodes": 1024,
+  "yaw_range": 0.6000000238418579,
+  "track_type": "mixed",
+  "gate_yaw_noise": 0.3,
+  "gates_per_turn": [
+    5.0,
+    12.0
+  ],
+  "deterministic": true,
+  "domain_randomization": true,
+  "success_rate": 0.1689453125,
+  "crash_rate": 0.623046875,
+  "miss_rate": 0.208984375,
+  "timeout_rate": 0.0,
+  "gates_passed_mean": 1.8564453125,
+  "episode_length_s": 1.4775186777114868,
+  "return_mean": 2.3883535861968994,
+  "per_n_active": {
+    "7": 0.1689453125
+  }
+}

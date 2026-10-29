@@ -53,6 +53,8 @@ SURFACE, INK, INK2, MUTED, GRID, AXIS = (
     "#e1e0d9",
     "#c3c2b7",
 )
+PREFIX = "phase1"  # figure file prefix, set by --prefix
+TITLE_NOTE = ""  # second line of the heatmap title, set by --title-note
 GATE_RED = "#e34948"  # slot 8, used only for gate frames in the map views (matches the renders)
 DEEMPH = "#c3c2b7"
 SEQ_CMAP = LinearSegmentedColormap.from_list("seq_blue", SEQ)
@@ -214,7 +216,7 @@ def fig_training(runs: dict[str, Path], out: Path):
         ha="left",
         x=0.01,
     )
-    fig.savefig(out / "phase1_fig1_training.png", dpi=170)
+    fig.savefig(out / f"{PREFIX}_fig1_training.png", dpi=170)
     plt.close(fig)
 
 
@@ -335,10 +337,11 @@ def fig_heatmap(runs: dict[str, Path], out: Path):
     for s in ax.spines.values():
         s.set_visible(False)
     ax.set_title(
-        "Success rate of each checkpoint on each test distribution (1,024 fresh tracks, all gates required, deterministic + DR unless stated)",
+        "Success rate of each checkpoint on each test distribution (1,024 fresh tracks, all gates required, deterministic + DR unless stated)"
+        + (f"\n{TITLE_NOTE}" if TITLE_NOTE else ""),
         fontsize=9.5,
     )
-    fig.savefig(out / "phase1_fig2_eval_heatmap.png", dpi=170)
+    fig.savefig(out / f"{PREFIX}_fig2_eval_heatmap.png", dpi=170)
     plt.close(fig)
 
 
@@ -432,7 +435,7 @@ def fig_decoupling(runs: dict[str, Path], out: Path):
     ax.set_xlim(-1.5, 48)
     ax.legend(loc="upper right", bbox_to_anchor=(0.99, 0.82))
     ax.set_title("Zero-shot success is a function of one geometric variable, not of curvature")
-    fig.savefig(out / "phase1_fig3_decoupling.png", dpi=170)
+    fig.savefig(out / f"{PREFIX}_fig3_decoupling.png", dpi=170)
     plt.close(fig)
 
 
@@ -557,7 +560,7 @@ def fig_trajectories(runs: dict[str, Path], out: Path):
         ha="left",
         x=0.01,
     )
-    fig.savefig(out / "phase1_fig4_trajectories.png", dpi=170)
+    fig.savefig(out / f"{PREFIX}_fig4_trajectories.png", dpi=170)
     plt.close(fig)
 
 
@@ -625,7 +628,7 @@ def fig_flight(runs: dict[str, Path], out: Path, world: int = 0):
         ha="left",
         x=0.01,
     )
-    fig.savefig(out / "phase1_fig5_flight.png", dpi=170)
+    fig.savefig(out / f"{PREFIX}_fig5_flight.png", dpi=170)
     plt.close(fig)
 
 
@@ -694,7 +697,7 @@ def fig_long_chains(runs: dict[str, Path], out: Path):
     axes[1].set_xticks(xs + 1)
     axes[1].legend(loc="lower right")
     axes[1].set_title("Speed plateaus by gate 3, then falls")
-    fig.savefig(out / "phase1_fig6_long_chains.png", dpi=170)
+    fig.savefig(out / f"{PREFIX}_fig6_long_chains.png", dpi=170)
     plt.close(fig)
 
 
@@ -713,7 +716,7 @@ def fig_frames(frames: dict[str, Path], out: Path):
         ax.imshow(np.asarray(Image.open(frames[key]).convert("RGB")))
         ax.set_title(title, fontsize=8.5)
         ax.axis("off")
-    fig.savefig(out / "phase1_fig7_frames.png", dpi=150)
+    fig.savefig(out / f"{PREFIX}_fig7_frames.png", dpi=150)
     plt.close(fig)
 
 
@@ -736,19 +739,35 @@ def main():
         help="dir with overview.png, track.png, fpv.png, fail.png",
     )
     p.add_argument("--out", type=Path, default=Path("results/figures"))
+    p.add_argument("--prefix", default="phase1", help="figure file prefix")
+    p.add_argument("--title-note", default="", help="second line of the heatmap title")
+    p.add_argument(
+        "--only",
+        nargs="*",
+        choices=["training", "heatmap", "decoupling", "trajectories", "flight", "long_chains"],
+        default=None,
+        help="build only these figures (the last three need trajectory .npz files)",
+    )
     args = p.parse_args()
+    global PREFIX, TITLE_NOTE
+    PREFIX, TITLE_NOTE = args.prefix, args.title_note
     runs = {
         "three": args.three or latest("outputs/three_gates/*/"),
         "five": args.five or latest("outputs/five_gates/*/"),
         "mixed": args.mixed or latest("outputs/mixed_tracks/*/"),
     }
     args.out.mkdir(parents=True, exist_ok=True)
-    fig_training(runs, args.out)
-    fig_heatmap(runs, args.out)
-    fig_decoupling(runs, args.out)
-    fig_trajectories(runs, args.out)
-    fig_flight(runs, args.out)
-    fig_long_chains(runs, args.out)
+    figures = {
+        "training": fig_training,
+        "heatmap": fig_heatmap,
+        "decoupling": fig_decoupling,
+        "trajectories": fig_trajectories,
+        "flight": fig_flight,
+        "long_chains": fig_long_chains,
+    }
+    for name, fn in figures.items():
+        if args.only is None or name in args.only:
+            fn(runs, args.out)
     if args.frames:
         fig_frames(
             {k: args.frames / f"{k}.png" for k in ("overview", "track", "fpv", "fail")}, args.out
