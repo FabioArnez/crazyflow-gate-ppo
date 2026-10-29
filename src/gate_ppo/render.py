@@ -54,9 +54,18 @@ def add_overview_camera(sim: Sim, gates_pos, name: str = "overview") -> None:
 
     pts = np.asarray(gates_pos, dtype=float)
     centre = pts.mean(0)
-    extent = max(float(np.linalg.norm(pts[:, :2] - centre[:2], axis=1).max()), 1.5)
+    xy = pts[:, :2] - centre[:2]
+    extent = max(float(np.linalg.norm(xy, axis=1).max()), 1.5)
     azimuth = np.deg2rad(-135.0)
     dist, height = 1.9 * extent + 1.2, 1.3 * extent + 1.0
+    # Elongated tracks (long chains) are viewed obliquely from the side of their main axis, from
+    # behind the start, so that they are not foreshortened and the gate openings stay visible;
+    # round tracks keep the default diagonal view.
+    _, sv, vt = np.linalg.svd(xy, full_matrices=False)
+    if sv[0] > 2.0 * sv[1]:
+        axis = vt[0] if (pts[-1, :2] - pts[0, :2]) @ vt[0] > 0 else -vt[0]
+        azimuth = np.arctan2(axis[1], axis[0]) - np.deg2rad(125.0)
+        dist, height = 1.2 * extent + 1.5, 0.8 * extent + 1.0
     pos = centre + np.array([dist * np.cos(azimuth), dist * np.sin(azimuth), height])
     fwd = centre - pos
     fwd /= np.linalg.norm(fwd)
